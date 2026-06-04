@@ -1,0 +1,323 @@
+import fs from 'fs';
+import path from 'path';
+
+const DB_FILE = path.join(process.cwd(), 'mock-db.json');
+
+// Default initial data if file doesn't exist
+const INITIAL_DATA = {
+  users: [
+    {
+      id: 'mock-admin-id',
+      email: 'admin@dhara.com',
+      full_name: 'Dhara Admin',
+      role: 'admin',
+      is_active: true
+    }
+  ],
+  clients: [
+    {
+      id: 'client-1',
+      name: 'Rajesh Sharma',
+      email: 'rajesh@gmail.com',
+      mobile: '+91 98765 43210',
+      pan: 'ABCDE1234F',
+      aadhaar: '1234 5678 9012',
+      dob: '1980-05-15',
+      anniversary: '2008-11-23',
+      address: '102, Skyline Towers, Andheri West',
+      city: 'Mumbai',
+      state: 'Maharashtra',
+      pincode: '400053',
+      occupation: 'Business Owner',
+      risk_profile: 'moderate',
+      assigned_rm_id: 'mock-admin-id',
+      is_active: true,
+      created_at: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+    },
+    {
+      id: 'client-2',
+      name: 'Priya Nair',
+      email: 'priya.nair@yahoo.com',
+      mobile: '+91 91234 56789',
+      pan: 'XYZWR8877K',
+      aadhaar: '9876 5432 1098',
+      dob: '1988-09-20',
+      address: 'B-404, Green Meadows, HSR Layout',
+      city: 'Bengaluru',
+      state: 'Karnataka',
+      pincode: '560102',
+      occupation: 'Software Director',
+      risk_profile: 'aggressive',
+      assigned_rm_id: 'mock-admin-id',
+      is_active: true,
+      created_at: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString()
+    },
+    {
+      id: 'client-3',
+      name: 'Amit Patel',
+      email: 'amit.patel@gmail.com',
+      mobile: '+91 99001 99002',
+      pan: 'PQRSS5544L',
+      aadhaar: '4433 2211 0099',
+      dob: '1975-01-10',
+      anniversary: '2001-02-14',
+      address: '78, Shanti Kunj, Satellite Road',
+      city: 'Ahmedabad',
+      state: 'Gujarat',
+      pincode: '380015',
+      occupation: 'Doctor',
+      risk_profile: 'conservative',
+      assigned_rm_id: 'mock-admin-id',
+      is_active: true,
+      created_at: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString()
+    }
+  ],
+  families: [
+    {
+      id: 'family-1',
+      name: 'Sharma Family Group',
+      primary_contact_id: 'client-1',
+      notes: 'High net worth business owners family.',
+      created_at: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+    }
+  ],
+  family_members: [
+    {
+      id: 'member-1',
+      family_id: 'family-1',
+      client_id: 'client-1',
+      relationship: 'Self'
+    }
+  ],
+  portfolios: [
+    {
+      id: 'portfolio-1',
+      client_id: 'client-1',
+      total_invested: 5000000,
+      current_value: 6250000,
+      realized_gains: 150000
+    },
+    {
+      id: 'portfolio-2',
+      client_id: 'client-2',
+      total_invested: 3500000,
+      current_value: 4550000,
+      realized_gains: 80000
+    },
+    {
+      id: 'portfolio-3',
+      client_id: 'client-3',
+      total_invested: 12000000,
+      current_value: 13800000,
+      realized_gains: 450000
+    }
+  ],
+  portfolio_investments: [
+    {
+      id: 'inv-1',
+      portfolio_id: 'portfolio-1',
+      asset_type: 'mutual_fund',
+      scheme_name: 'HDFC Mid-Cap Opportunities Fund - Growth',
+      folio_number: '1234567/89',
+      units: 12500.45,
+      purchase_nav: 120.5,
+      current_nav: 155.8,
+      invested_amount: 1506304,
+      current_value: 1947570,
+      last_updated: new Date().toISOString()
+    },
+    {
+      id: 'inv-2',
+      portfolio_id: 'portfolio-1',
+      asset_type: 'equity',
+      scheme_name: 'Reliance Industries Ltd.',
+      folio_number: 'IN301122/88776655',
+      units: 1000,
+      purchase_nav: 2200,
+      current_nav: 2580,
+      invested_amount: 2200000,
+      current_value: 2580000,
+      last_updated: new Date().toISOString()
+    },
+    {
+      id: 'inv-3',
+      portfolio_id: 'portfolio-2',
+      asset_type: 'mutual_fund',
+      scheme_name: 'Parag Parikh Flexi Cap Fund - Direct Growth',
+      folio_number: '9876543/21',
+      units: 25800.75,
+      purchase_nav: 55.4,
+      current_nav: 72.8,
+      invested_amount: 1429361,
+      current_value: 1878294,
+      last_updated: new Date().toISOString()
+    },
+    {
+      id: 'inv-4',
+      portfolio_id: 'portfolio-3',
+      asset_type: 'fixed_income',
+      scheme_name: 'SBI Dual Horizon Term Deposit 3Y',
+      folio_number: 'FD-SBI-2024-88',
+      units: 1,
+      purchase_nav: 10000000,
+      current_nav: 11500000,
+      invested_amount: 10000000,
+      current_value: 11500000,
+      last_updated: new Date().toISOString()
+    }
+  ],
+  sips: [
+    {
+      id: 'sip-1',
+      portfolio_id: 'portfolio-1',
+      scheme_name: 'HDFC Mid-Cap Opportunities Fund - Growth',
+      amount: 25000,
+      frequency: 'monthly',
+      start_date: '2022-01-10',
+      next_due_date: '2026-07-10',
+      is_active: true
+    },
+    {
+      id: 'sip-2',
+      portfolio_id: 'portfolio-2',
+      scheme_name: 'Parag Parikh Flexi Cap Fund - Direct Growth',
+      amount: 50000,
+      frequency: 'monthly',
+      start_date: '2023-05-15',
+      next_due_date: '2026-07-15',
+      is_active: true
+    }
+  ],
+  goals: [
+    {
+      id: 'goal-1',
+      client_id: 'client-1',
+      name: 'Pooja Higher Education (USA)',
+      target_amount: 8000000,
+      current_amount: 3200000,
+      target_date: '2030-06-30',
+      category: 'education',
+      created_at: new Date().toISOString()
+    },
+    {
+      id: 'goal-2',
+      client_id: 'client-1',
+      name: 'Retirement Wealth Corpus',
+      target_amount: 50000000,
+      current_amount: 12500000,
+      target_date: '2045-12-31',
+      category: 'retirement',
+      created_at: new Date().toISOString()
+    },
+    {
+      id: 'goal-3',
+      client_id: 'client-2',
+      name: 'Villa Down Payment',
+      target_amount: 15000000,
+      current_amount: 4550000,
+      target_date: '2028-10-01',
+      category: 'housing',
+      created_at: new Date().toISOString()
+    }
+  ],
+  crm_leads: [
+    {
+      id: 'lead-1',
+      name: 'Vikram Singhal',
+      email: 'vikram.s@outlook.com',
+      mobile: '+91 94440 12345',
+      source: 'website',
+      status: 'contacted',
+      notes: 'Interested in retirement planning and high yield mutual funds.',
+      created_at: new Date().toISOString()
+    },
+    {
+      id: 'lead-2',
+      name: 'Meera Deshmukh',
+      email: 'meera.d@gmail.com',
+      mobile: '+91 93330 98765',
+      source: 'referral',
+      status: 'new',
+      notes: 'Referred by Rajesh Sharma. Looking to start a family trust fund.',
+      created_at: new Date().toISOString()
+    }
+  ],
+  crm_tasks: [
+    {
+      id: 'task-1',
+      assigned_to: 'mock-admin-id',
+      client_id: 'client-1',
+      title: 'Review Quarterly Asset Allocation',
+      description: 'Check portfolio risk distribution and rebalance equities if needed.',
+      due_date: '2026-06-15',
+      status: 'pending',
+      priority: 'high',
+      created_at: new Date().toISOString()
+    },
+    {
+      id: 'task-2',
+      assigned_to: 'mock-admin-id',
+      client_id: 'client-2',
+      title: 'Discuss Tax Saving Plans',
+      description: 'Setup call to explain ELSS and PPF contributions for current financial year.',
+      due_date: '2026-06-20',
+      status: 'in_progress',
+      priority: 'medium',
+      created_at: new Date().toISOString()
+    }
+  ],
+  documents: [
+    {
+      id: 'doc-1',
+      client_id: 'client-1',
+      name: 'PAN_Card_Rajesh.pdf',
+      file_path: 'mock/PAN_Card_Rajesh.pdf',
+      file_type: 'pdf',
+      file_size: 152030,
+      uploaded_at: new Date().toISOString()
+    },
+    {
+      id: 'doc-2',
+      client_id: 'client-1',
+      name: 'Portfolio_Import_June2026.xlsx',
+      file_path: 'mock/Portfolio_Import_June2026.xlsx',
+      file_type: 'xlsx',
+      file_size: 20450,
+      uploaded_at: new Date().toISOString()
+    }
+  ],
+  activities: [
+    {
+      id: 'act-1',
+      user_id: 'mock-admin-id',
+      action: 'login',
+      entity_type: 'user',
+      entity_id: 'mock-admin-id',
+      details: 'Admin user logged in successfully',
+      created_at: new Date().toISOString()
+    }
+  ]
+};
+
+// Helper functions to read/write JSON
+export function readDb() {
+  try {
+    if (!fs.existsSync(DB_FILE)) {
+      fs.writeFileSync(DB_FILE, JSON.stringify(INITIAL_DATA, null, 2), 'utf-8');
+      return INITIAL_DATA;
+    }
+    const data = fs.readFileSync(DB_FILE, 'utf-8');
+    return JSON.parse(data);
+  } catch (error) {
+    console.error('Error reading mock DB file, returning fallback:', error);
+    return INITIAL_DATA;
+  }
+}
+
+export function writeDb(data: any) {
+  try {
+    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (error) {
+    console.error('Error writing to mock DB file:', error);
+  }
+}
