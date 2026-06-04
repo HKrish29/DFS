@@ -58,6 +58,24 @@ export function calculateCAGR(invested: number, current: number, years: number):
   return (Math.pow(current / invested, 1 / years) - 1) * 100;
 }
 
+export function calculateInvestmentCAGR(
+  invested: number,
+  current: number,
+  purchaseDate: string | null | undefined
+): number {
+  if (!purchaseDate || invested <= 0 || current <= 0) return 0;
+  try {
+    const start = parseISO(purchaseDate);
+    const end = new Date();
+    const days = differenceInDays(end, start);
+    const years = days / 365.25;
+    if (years <= 0.04) return 0; // Skip CAGR calculation for investments less than ~15 days old to avoid massive spikes
+    return calculateCAGR(invested, current, years);
+  } catch {
+    return 0;
+  }
+}
+
 // Goal planning calculations
 export function calculateRequiredSIP(
   targetAmount: number,

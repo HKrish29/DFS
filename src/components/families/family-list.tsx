@@ -39,6 +39,7 @@ export function FamilyList({ initialFamilies }: FamilyListProps) {
   const [clients, setClients] = useState<Client[]>([]);
   const [selectedClient, setSelectedClient] = useState('');
   const [relationship, setRelationship] = useState('');
+  const [clientSearch, setClientSearch] = useState('');
 
   const filtered = families.filter(f =>
     !search || f.name.toLowerCase().includes(search.toLowerCase())
@@ -73,6 +74,7 @@ export function FamilyList({ initialFamilies }: FamilyListProps) {
 
   async function openMemberDialog(familyId: string) {
     setShowMemberDialog(familyId);
+    setClientSearch('');
     try {
       const data = await getClients();
       setClients(data);
@@ -216,18 +218,39 @@ export function FamilyList({ initialFamilies }: FamilyListProps) {
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>Select Client</Label>
-              <Select value={selectedClient} onValueChange={(val) => setSelectedClient(val || '')}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Choose a client" />
-                </SelectTrigger>
-                <SelectContent>
-                  {clients.map((client) => (
-                    <SelectItem key={client.id} value={client.id}>
-                      {client.name} - {client.mobile}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="relative mb-2">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+                <Input
+                  placeholder="Search client by name, mobile, PAN..."
+                  value={clientSearch}
+                  onChange={(e) => setClientSearch(e.target.value)}
+                  className="pl-8 h-9 text-xs"
+                />
+              </div>
+              {(() => {
+                const filteredClients = clients.filter(c =>
+                  c.name.toLowerCase().includes(clientSearch.toLowerCase()) ||
+                  c.mobile.includes(clientSearch) ||
+                  (c.pan && c.pan.toLowerCase().includes(clientSearch.toLowerCase()))
+                );
+                return (
+                  <Select value={selectedClient} onValueChange={(val) => setSelectedClient(val || '')}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Choose a client" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {filteredClients.map((client) => (
+                        <SelectItem key={client.id} value={client.id}>
+                          {client.name} - {client.mobile}
+                        </SelectItem>
+                      ))}
+                      {filteredClients.length === 0 && (
+                        <p className="text-xs text-gray-400 p-2 text-center">No clients match search</p>
+                      )}
+                    </SelectContent>
+                  </Select>
+                );
+              })()}
             </div>
             <div className="space-y-2">
               <Label>Relationship</Label>

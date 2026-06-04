@@ -13,11 +13,11 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { getPortfolio, addInvestmentAction, addSipAction, getAssetAllocation, getAmcAllocation } from '@/lib/actions/portfolio';
-import { formatCurrency, calculateAbsoluteReturn } from '@/lib/utils/helpers';
+import { formatCurrency, calculateAbsoluteReturn, calculateInvestmentCAGR } from '@/lib/utils/helpers';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { toast } from 'sonner';
 import type { Client } from '@/lib/types';
-import { Plus, TrendingUp, TrendingDown, IndianRupee, Briefcase } from 'lucide-react';
+import { Plus, TrendingUp, TrendingDown, IndianRupee, Briefcase, Search } from 'lucide-react';
 
 const COLORS = ['#2563EB', '#0F172A', '#22C55E', '#F59E0B', '#8B5CF6', '#EC4899', '#06B6D4'];
 
@@ -34,6 +34,7 @@ export function PortfolioView({ clients, selectedClientId }: PortfolioViewProps)
   const [loading, setLoading] = useState(false);
   const [showInvDialog, setShowInvDialog] = useState(false);
   const [showSipDialog, setShowSipDialog] = useState(false);
+  const [clientSearch, setClientSearch] = useState('');
 
   // Investment form state
   const [invForm, setInvForm] = useState({
@@ -119,22 +120,56 @@ export function PortfolioView({ clients, selectedClientId }: PortfolioViewProps)
   const gain = current - invested;
   const returnPct = calculateAbsoluteReturn(invested, current);
 
+  let totalWeightAmount = 0;
+  let weightedCagrSum = 0;
+  if (portfolio?.investments) {
+    for (const inv of portfolio.investments) {
+      const cagr = calculateInvestmentCAGR(inv.invested_amount, inv.current_value, inv.purchase_date);
+      if (cagr !== 0) {
+        weightedCagrSum += cagr * inv.invested_amount;
+        totalWeightAmount += inv.invested_amount;
+      }
+    }
+  }
+  const portfolioCagr = totalWeightAmount > 0 ? weightedCagrSum / totalWeightAmount : 0;
+
+  // Filter clients based on search input
+  const filteredClients = clients.filter(c =>
+    c.name.toLowerCase().includes(clientSearch.toLowerCase()) ||
+    c.mobile.includes(clientSearch) ||
+    (c.pan && c.pan.toLowerCase().includes(clientSearch.toLowerCase()))
+  );
+
   return (
     <div className="space-y-6">
       {/* Client Selection */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <Select value={clientId} onValueChange={(val) => setClientId(val || '')}>
-          <SelectTrigger className="w-full sm:w-80">
-            <SelectValue placeholder="Select a client" />
-          </SelectTrigger>
-          <SelectContent>
-            {clients.map((client) => (
-              <SelectItem key={client.id} value={client.id}>
-                {client.name} - {client.mobile}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex flex-col gap-2 sm:flex-row w-full sm:w-auto items-stretch sm:items-center">
+          <div className="relative w-full sm:w-64">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+            <Input
+              placeholder="Search client by name, mobile, PAN..."
+              value={clientSearch}
+              onChange={(e) => setClientSearch(e.target.value)}
+              className="pl-8 h-9 text-xs"
+            />
+          </div>
+          <Select value={clientId} onValueChange={(val) => setClientId(val || '')}>
+            <SelectTrigger className="w-full sm:w-72">
+              <SelectValue placeholder="Select a client" />
+            </SelectTrigger>
+            <SelectContent>
+              {filteredClients.map((client) => (
+                <SelectItem key={client.id} value={client.id}>
+                  {client.name} - {client.mobile}
+                </SelectItem>
+              ))}
+              {filteredClients.length === 0 && (
+                <p className="text-xs text-gray-400 p-2 text-center">No clients match search</p>
+              )}
+            </SelectContent>
+          </Select>
+        </div>
         {clientId && (
           <div className="flex gap-2">
             <Button onClick={() => setShowInvDialog(true)} className="bg-[#0F172A] hover:bg-[#1E293B]">
@@ -159,7 +194,7 @@ export function PortfolioView({ clients, selectedClientId }: PortfolioViewProps)
       ) : (
         <>
           {/* Summary Cards */}
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
             <Card className="p-4 bg-white border-gray-200">
               <p className="text-xs text-gray-500">Investment</p>
               <p className="text-lg font-bold">{formatCurrency(invested)}</p>
@@ -178,6 +213,12 @@ export function PortfolioView({ clients, selectedClientId }: PortfolioViewProps)
               <p className="text-xs text-gray-500">Abs. Return</p>
               <p className={`text-lg font-bold ${returnPct >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                 {returnPct.toFixed(2)}%
+              </p>
+            </Card>
+            <Card className="p-4 bg-white border-gray-200">
+              <p className="text-xs text-gray-500">Ann. Return (CAGR)</p>
+              <p className={`text-lg font-bold ${portfolioCagr >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {portfolioCagr !== 0 ? `${portfolioCagr.toFixed(2)}%` : '-'}
               </p>
             </Card>
           </div>
@@ -230,13 +271,15 @@ export function PortfolioView({ clients, selectedClientId }: PortfolioViewProps)
                       <th className="pb-3 font-medium text-right">Invested</th>
                       <th className="pb-3 font-medium text-right">Current</th>
                       <th className="pb-3 font-medium text-right">Gain</th>
-                      <th className="pb-3 font-medium text-right">Return %</th>
+                      <th className="pb-3 font-medium text-right text-nowrap">Abs. Return</th>
+                      <th className="pb-3 font-medium text-right">CAGR</th>
                     </tr>
                   </thead>
                   <tbody>
                     {portfolio.investments.map((inv: any) => {
                       const g = inv.current_value - inv.invested_amount;
                       const r = calculateAbsoluteReturn(inv.invested_amount, inv.current_value);
+                      const cagr = calculateInvestmentCAGR(inv.invested_amount, inv.current_value, inv.purchase_date);
                       return (
                         <tr key={inv.id} className="border-b last:border-0">
                           <td className="py-3 font-medium max-w-[200px] truncate">{inv.scheme_name}</td>
@@ -249,6 +292,9 @@ export function PortfolioView({ clients, selectedClientId }: PortfolioViewProps)
                           </td>
                           <td className={`py-3 text-right ${r >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                             {r.toFixed(2)}%
+                          </td>
+                          <td className={`py-3 text-right ${cagr >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {cagr !== 0 ? `${cagr.toFixed(2)}%` : '-'}
                           </td>
                         </tr>
                       );

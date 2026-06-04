@@ -55,7 +55,7 @@ interface ExtractedClient {
 
 export default function ImportPage() {
   const [file, setFile] = useState<File | null>(null);
-  const [importType, setImportType] = useState<'standard' | 'portfolio' | null>(null);
+  const [importType, setImportType] = useState<'standard' | 'portfolio' | 'feed' | null>(null);
   
   // Standard format states
   const [standardData, setStandardData] = useState<ImportRow[]>([]);
@@ -91,7 +91,16 @@ export default function ImportPage() {
     return String(excelDate);
   };
 
-  const detectSheetFormat = (rows: any[][]): 'standard' | 'portfolio' => {
+  const detectSheetFormat = (rows: any[][]): 'standard' | 'portfolio' | 'feed' => {
+    if (rows.length > 0 && rows[0]) {
+      const headers = rows[0].map(h => String(h).replace(/^'|'$/g, '').trim().toUpperCase());
+      if (headers.includes('AMC_CODE') || headers.includes('FOLIO_NO') || headers.includes('TRXNTYPE')) {
+        if (headers.includes('AMC_CODE')) {
+          return 'feed';
+        }
+      }
+    }
+
     let hasFolioHeader = false;
     let hasClientHeader = false;
 
@@ -195,6 +204,205 @@ export default function ImportPage() {
     return Object.values(clientsMap);
   };
 
+  const parseFeedDate = (dateStr: string): string | null => {
+    if (!dateStr) return null;
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return null;
+    return date.toISOString().split('T')[0];
+  };
+
+  const parseFeedRows = (rows: any[][]): ExtractedClient[] => {
+    if (rows.length < 2) return [];
+
+    const headers = rows[0].map(h => String(h).replace(/^'|'$/g, '').trim().toUpperCase());
+    
+    const panIdx = headers.indexOf('PAN');
+    const nameIdx = headers.indexOf('INV_NAME');
+    const folioIdx = headers.indexOf('FOLIO_NO');
+    const schemeIdx = headers.indexOf('SCHEME');
+    const trxnTypeIdx = headers.indexOf('TRXNTYPE');
+    const trxnNatureIdx = headers.indexOf('TRXN_NATURE');
+    const dateIdx = headers.indexOf('TRADDATE');
+    const priceIdx = headers.indexOf('PURPRICE');
+    const unitsIdx = headers.indexOf('UNITS');
+    const amountIdx = headers.indexOf('AMOUNT');
+
+    if (nameIdx === -1 || folioIdx === -1 || schemeIdx === -1) {
+      console.error('Required columns missing from feed:', { nameIdx, folioIdx, schemeIdx });
+      return [];
+    }
+
+    const cleanVal = (val: any): string => {
+      if (val === null || val === undefined) return '';
+      const s = String(val).trim();
+      return s.replace(/^'|'$/g, '').trim();
+    };
+
+    const clientsMap: Record<string, {
+      name: string;
+      pan: string;
+      holdings: Record<string, {
+        folioNumber: string;
+        schemeName: string;
+        transactions: Array<{
+          date: string | null;
+          units: number;
+          amount: number;
+          price: number;
+          isRedemption: boolean;
+        }>;
+      }>;
+    }> = {};
+
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row || row.length === 0 || !row[nameIdx]) continue;
+
+      const name = cleanVal(row[nameIdx]);
+      if (!name) continue;
+
+      const pan = panIdx !== -1 ? cleanVal(row[panIdx]).toUpperCase() : '';
+      const folioNumber = cleanVal(row[folioIdx]);
+      const schemeName = cleanVal(row[schemeIdx]);
+      const trxnType = trxnTypeIdx !== -1 ? cleanVal(row[trxnTypeIdx]) : '';
+      const trxnNature = trxnNatureIdx !== -1 ? cleanVal(row[trxnNatureIdx]) : '';
+      const dateStr = dateIdx !== -1 ? cleanVal(row[dateIdx]) : '';
+      const price = priceIdx !== -1 ? Number(cleanVal(row[priceIdx])) || 0 : 0;
+      const units = unitsIdx !== -1 ? Number(cleanVal(row[unitsIdx])) || 0 : 0;
+      const amount = amountIdx !== -1 ? Number(cleanVal(row[amountIdx])) || 0 : 0;
+
+      const isRedemption = 
+        trxnType.toUpperCase().startsWith('R') || 
+        trxnNature.toLowerCase().includes('redemption') || 
+        trxnNature.toLowerCase().includes('switch out') ||
+        trxnNature.toLowerCase().includes('switch-out') ||
+        trxnNature.toLowerCase().includes('swout');
+
+      const clientKey = pan && pan.length >= 5 ? pan : name.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+      if (!clientsMap[clientKey]) {
+        clientsMap[clientKey] = {
+          name,
+          pan,
+          holdings: {}
+        };
+      }
+
+      const holdingKey = `${folioNumber}_${schemeName}`;
+      if (!clientsMap[clientKey].holdings[holdingKey]) {
+        clientsMap[clientKey].holdings[holdingKey] = {
+          folioNumber,
+          schemeName,
+          transactions: []
+        };
+      }
+
+      clientsMap[clientKey].holdings[holdingKey].transactions.push({
+        date: dateStr,
+        units,
+        amount,
+        price,
+        isRedemption
+      });
+    }
+
+    const result: ExtractedClient[] = [];
+
+    for (const [clientKey, rawClient] of Object.entries(clientsMap)) {
+      const { name, pan, holdings } = rawClient;
+      const investments: ExtractedInvestment[] = [];
+
+      for (const rawHolding of Object.values(holdings)) {
+        const { folioNumber, schemeName, transactions } = rawHolding;
+
+        transactions.sort((a, b) => {
+          const dateA = a.date ? new Date(a.date).getTime() : 0;
+          const dateB = b.date ? new Date(b.date).getTime() : 0;
+          return dateA - dateB;
+        });
+
+        let netUnits = 0;
+        let netAmount = 0;
+        let earliestDateStr: string | null = null;
+        let latestPrice = 0;
+        let latestPriceDate = 0;
+
+        for (const tx of transactions) {
+          if (tx.isRedemption) {
+            netUnits -= tx.units;
+            netAmount -= tx.amount;
+          } else {
+            netUnits += tx.units;
+            netAmount += tx.amount;
+            
+            const txDate = tx.date ? new Date(tx.date).getTime() : 0;
+            if (tx.date && (!earliestDateStr || txDate < new Date(earliestDateStr).getTime())) {
+              earliestDateStr = parseFeedDate(tx.date);
+            }
+          }
+
+          const txDate = tx.date ? new Date(tx.date).getTime() : 0;
+          if (txDate >= latestPriceDate && tx.price > 0) {
+            latestPrice = tx.price;
+            latestPriceDate = txDate;
+          }
+        }
+
+        if (netUnits <= 0.0001) {
+          continue;
+        }
+
+        if (!earliestDateStr && transactions.length > 0) {
+          const earliestTx = transactions.reduce((earliest, current) => {
+            const earliestTime = earliest.date ? new Date(earliest.date).getTime() : Infinity;
+            const currentTime = current.date ? new Date(current.date).getTime() : Infinity;
+            return currentTime < earliestTime ? current : earliest;
+          }, transactions[0]);
+          if (earliestTx.date) {
+            earliestDateStr = parseFeedDate(earliestTx.date);
+          }
+        }
+
+        const purchaseNav = netUnits > 0 ? (netAmount / netUnits) : latestPrice;
+        const currentNav = latestPrice;
+        const currentValue = netUnits * currentNav;
+
+        investments.push({
+          folioNumber,
+          schemeName,
+          purchaseDate: earliestDateStr,
+          investedAmount: Math.round(netAmount),
+          purchaseNav,
+          units: netUnits,
+          currentNav,
+          currentValue
+        });
+      }
+
+      if (investments.length === 0) continue;
+
+      const existing = existingClients.find(
+        ec => (ec.pan && ec.pan.toUpperCase() === pan) || ec.name.toLowerCase() === name.toLowerCase()
+      );
+
+      result.push({
+        id: `client-${clientKey.toLowerCase()}`,
+        name,
+        pan,
+        kycStatus: 'FEED IMPORTED',
+        mobile: existing ? existing.mobile : `998877${Math.floor(1000 + Math.random() * 9000)}`,
+        email: existing ? existing.email : `${name.toLowerCase().replace(/\s+/g, '.').replace(/[^a-z.]/g, '')}@example.com`,
+        city: existing ? existing.city : 'Rajkot',
+        state: existing ? existing.state : 'Gujarat',
+        investments,
+        isExisting: !!existing,
+        existingId: existing ? existing.id : undefined
+      });
+    }
+
+    return result;
+  };
+
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -228,6 +436,15 @@ export default function ImportPage() {
           } else {
             toast.error('Could not extract portfolio data from the file structure');
           }
+        } else if (detectedFormat === 'feed') {
+          const parsedClients = parseFeedRows(rawRows);
+          if (parsedClients.length > 0) {
+            setExtractedClients(parsedClients);
+            setStep('preview');
+            toast.success(`Detected CAMS daily feed: ${parsedClients.length} clients loaded.`);
+          } else {
+            toast.error('Could not extract holdings from CAMS feed');
+          }
         } else {
           // Standard flat format
           const jsonData = XLSX.utils.sheet_to_json(ws, { defval: '' }) as ImportRow[];
@@ -254,7 +471,7 @@ export default function ImportPage() {
   };
 
   const hasInvalidMobiles = () => {
-    if (importType !== 'portfolio') return false;
+    if (importType !== 'portfolio' && importType !== 'feed') return false;
     return extractedClients.some(c => !/^\d{10}$/.test(c.mobile));
   };
 
@@ -263,7 +480,7 @@ export default function ImportPage() {
     setStep('importing');
     const logs: typeof importLog = [];
 
-    if (importType === 'portfolio') {
+    if (importType === 'portfolio' || importType === 'feed') {
       for (const client of extractedClients) {
         try {
           let resolvedClientId = client.existingId;
@@ -284,7 +501,7 @@ export default function ImportPage() {
               anniversary: null,
               address: null,
               pincode: null,
-              notes: `Imported via Portfolio Sheet: KYC: ${client.kycStatus}`,
+              notes: importType === 'feed' ? 'Imported via CAMS Feed' : `Imported via Portfolio Sheet: KYC: ${client.kycStatus}`,
               assigned_rm_id: null,
             });
 
@@ -412,7 +629,7 @@ export default function ImportPage() {
       await createFileImportRecord({
         file_name: file?.name || 'unknown',
         file_size: file?.size || 0,
-        import_type: importType === 'portfolio' ? 'portfolio' : 'standard',
+        import_type: importType === 'portfolio' || importType === 'feed' ? 'portfolio' : 'standard',
         clients_created: logs.filter(l => l.item.startsWith('Client:') && l.status === 'success').length,
         investments_created: logs.filter(l => l.item.includes('Investment:') && l.status === 'success').length,
         status: 'completed',
@@ -470,7 +687,7 @@ export default function ImportPage() {
                 </div>
               </label>
             </div>
-            <div className="mt-12 grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl text-xs text-gray-500 bg-gray-50 p-6 rounded-xl border border-gray-100">
+            <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-4 max-w-3xl text-xs text-gray-500 bg-gray-50 p-6 rounded-xl border border-gray-100">
               <div>
                 <p className="font-bold text-gray-700 flex items-center gap-1.5 mb-1.5">
                   <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
@@ -485,18 +702,29 @@ export default function ImportPage() {
                 </p>
                 <p className="leading-relaxed">Supports nested client sections with names, PANs, KYC status blocks, and folio tables like Book1.xls</p>
               </div>
+              <div>
+                <p className="font-bold text-gray-700 flex items-center gap-1.5 mb-1.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                  CAMS Daily Feed Format:
+                </p>
+                <p className="leading-relaxed">Parses standard CAMS transaction feeds (e.g. feed.csv) to automatically reconcile client holdings and calculate average purchase prices</p>
+              </div>
             </div>
           </div>
         </Card>
       )}
 
-      {step === 'preview' && importType === 'portfolio' && extractedClients.length > 0 && (
+      {step === 'preview' && (importType === 'portfolio' || importType === 'feed') && extractedClients.length > 0 && (
         <div className="space-y-6">
           <Card className="p-6 bg-white border border-gray-200 shadow-sm">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
-                <Badge className="bg-indigo-50 text-indigo-700 border-indigo-150 mb-2 hover:bg-indigo-50">
-                  Structured Statement Format Detected
+                <Badge className={
+                  importType === 'feed'
+                    ? "bg-amber-50 text-amber-700 border-amber-150 mb-2 hover:bg-amber-50"
+                    : "bg-indigo-50 text-indigo-700 border-indigo-150 mb-2 hover:bg-indigo-50"
+                }>
+                  {importType === 'feed' ? 'CAMS Daily Feed Format Detected' : 'Structured Statement Format Detected'}
                 </Badge>
                 <h3 className="text-lg font-bold text-[#0F172A]">Previewing: {file?.name}</h3>
                 <p className="text-sm text-gray-500 mt-0.5">
@@ -510,7 +738,7 @@ export default function ImportPage() {
                   disabled={hasInvalidMobiles()}
                   className="bg-[#2563EB] hover:bg-[#1D4ED8] shadow"
                 >
-                  <FileUp className="h-4 w-4 mr-2" /> Import Portfolios
+                  <FileUp className="h-4 w-4 mr-2" /> {importType === 'feed' ? 'Import CAMS Feed' : 'Import Portfolios'}
                 </Button>
               </div>
             </div>

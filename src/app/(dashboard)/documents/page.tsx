@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -12,7 +13,7 @@ import { getDocuments, uploadDocument, deleteDocument, getDocumentUrl } from '@/
 import { formatDate } from '@/lib/utils/helpers';
 import { toast } from 'sonner';
 import type { Client } from '@/lib/types';
-import { FileText, Upload, Download, Trash2, FolderLock, Eye } from 'lucide-react';
+import { FileText, Upload, Download, Trash2, FolderLock, Eye, Search } from 'lucide-react';
 
 export default function DocumentsPage() {
   const [clients, setClients] = useState<Client[]>([]);
@@ -20,6 +21,7 @@ export default function DocumentsPage() {
   const [documents, setDocuments] = useState<any[]>([]);
   const [uploading, setUploading] = useState(false);
   const [docType, setDocType] = useState('other');
+  const [clientSearch, setClientSearch] = useState('');
 
   useEffect(() => {
     async function load() {
@@ -89,12 +91,35 @@ export default function DocumentsPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
         <div className="flex-1 max-w-sm">
           <label className="text-sm font-medium mb-1 block">Select Client</label>
-          <Select value={selectedClient} onValueChange={(val) => handleClientChange(val || '')}>
-            <SelectTrigger><SelectValue placeholder="Choose a client" /></SelectTrigger>
-            <SelectContent>
-              {clients.map(c => <SelectItem key={c.id} value={c.id}>{c.name} - {c.mobile}</SelectItem>)}
-            </SelectContent>
-          </Select>
+          <div className="flex flex-col gap-2.5 sm:flex-row items-stretch sm:items-center mb-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Input
+                placeholder="Search name, mobile, PAN..."
+                value={clientSearch}
+                onChange={(e) => setClientSearch(e.target.value)}
+                className="pl-9 h-10 text-sm"
+              />
+            </div>
+          </div>
+          {(() => {
+            const filteredClients = clients.filter(c =>
+              c.name.toLowerCase().includes(clientSearch.toLowerCase()) ||
+              c.mobile.includes(clientSearch) ||
+              (c.pan && c.pan.toLowerCase().includes(clientSearch.toLowerCase()))
+            );
+            return (
+              <Select value={selectedClient} onValueChange={(val) => handleClientChange(val || '')}>
+                <SelectTrigger><SelectValue placeholder="Choose a client" /></SelectTrigger>
+                <SelectContent>
+                  {filteredClients.map(c => <SelectItem key={c.id} value={c.id}>{c.name} - {c.mobile}</SelectItem>)}
+                  {filteredClients.length === 0 && (
+                    <p className="text-xs text-gray-400 p-2 text-center">No matches</p>
+                  )}
+                </SelectContent>
+              </Select>
+            );
+          })()}
         </div>
 
         {selectedClient && (
