@@ -157,28 +157,51 @@ export default function WhatsAppPage() {
             )}
           </div>
 
-          {(() => {
-            const filteredClients = clients.filter(c =>
-              c.name.toLowerCase().includes(clientSearch.toLowerCase()) ||
-              c.mobile.includes(clientSearch) ||
-              (c.pan && c.pan.toLowerCase().includes(clientSearch.toLowerCase()))
-            );
-            return (
-              <Select value={selectedClient} onValueChange={(val) => handleClientSelect(val || '')}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Choose a client" />
-                </SelectTrigger>
-                <SelectContent>
-                  {filteredClients.map(c => (
-                    <SelectItem key={c.id} value={c.id}>{c.name} - {c.mobile}</SelectItem>
-                  ))}
-                  {filteredClients.length === 0 && (
-                    <p className="text-xs text-gray-400 p-2 text-center">No clients match search</p>
-                  )}
-                </SelectContent>
-              </Select>
-            );
-          })()}
+          {clientSearch ? (
+            <div className="border border-gray-150 rounded-lg divide-y divide-gray-100 max-h-48 overflow-y-auto mb-3 bg-white shadow-sm">
+              {(() => {
+                const filteredClients = clients.filter(c =>
+                  c.name.toLowerCase().includes(clientSearch.toLowerCase()) ||
+                  c.mobile.includes(clientSearch) ||
+                  (c.pan && c.pan.toLowerCase().includes(clientSearch.toLowerCase()))
+                );
+                if (filteredClients.length === 0) {
+                  return <div className="p-3 text-center text-xs text-gray-400">No clients match search</div>;
+                }
+                return filteredClients.map(c => (
+                  <button
+                    key={c.id}
+                    onClick={() => {
+                      handleClientSelect(c.id);
+                      setClientSearch('');
+                    }}
+                    className="w-full text-left px-4 py-2.5 hover:bg-blue-50/50 text-sm font-medium flex items-center justify-between transition-colors cursor-pointer"
+                  >
+                    <div>
+                      <span className="text-[#0F172A] font-semibold">{c.name}</span>
+                      <span className="text-xs text-gray-500 ml-2">({c.mobile})</span>
+                    </div>
+                    {c.pan && (
+                      <span className="text-[10px] bg-gray-100 px-1.5 py-0.5 rounded font-mono text-gray-550 border border-gray-200">
+                        {c.pan}
+                      </span>
+                    )}
+                  </button>
+                ));
+              })()}
+            </div>
+          ) : (
+            <Select value={selectedClient} onValueChange={(val) => handleClientSelect(val || '')}>
+              <SelectTrigger>
+                <SelectValue placeholder="Choose a client" />
+              </SelectTrigger>
+              <SelectContent>
+                {clients.map(c => (
+                  <SelectItem key={c.id} value={c.id}>{c.name} - {c.mobile}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
 
           {clientData && (
             <div className="mt-4 space-y-4">

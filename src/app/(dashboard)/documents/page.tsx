@@ -91,8 +91,8 @@ export default function DocumentsPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
         <div className="flex-1 max-w-sm">
           <label className="text-sm font-medium mb-1 block">Select Client</label>
-          <div className="flex flex-col gap-2.5 sm:flex-row items-stretch sm:items-center mb-2">
-            <div className="relative flex-1">
+          <div className="flex flex-col gap-2.5">
+            <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
               <Input
                 placeholder="Search name, mobile, PAN..."
@@ -101,25 +101,48 @@ export default function DocumentsPage() {
                 className="pl-9 h-10 text-sm"
               />
             </div>
-          </div>
-          {(() => {
-            const filteredClients = clients.filter(c =>
-              c.name.toLowerCase().includes(clientSearch.toLowerCase()) ||
-              c.mobile.includes(clientSearch) ||
-              (c.pan && c.pan.toLowerCase().includes(clientSearch.toLowerCase()))
-            );
-            return (
+            {clientSearch ? (
+              <div className="border border-gray-150 rounded-lg divide-y divide-gray-100 max-h-48 overflow-y-auto bg-white shadow-sm w-full">
+                {(() => {
+                  const filteredClients = clients.filter(c =>
+                    c.name.toLowerCase().includes(clientSearch.toLowerCase()) ||
+                    c.mobile.includes(clientSearch) ||
+                    (c.pan && c.pan.toLowerCase().includes(clientSearch.toLowerCase()))
+                  );
+                  if (filteredClients.length === 0) {
+                    return <div className="p-3 text-center text-xs text-gray-400">No clients match search</div>;
+                  }
+                  return filteredClients.map(c => (
+                    <button
+                      key={c.id}
+                      onClick={() => {
+                        handleClientChange(c.id);
+                        setClientSearch('');
+                      }}
+                      className="w-full text-left px-4 py-2.5 hover:bg-blue-50/50 text-sm font-medium flex items-center justify-between transition-colors cursor-pointer"
+                    >
+                      <div>
+                        <span className="text-[#0F172A] font-semibold">{c.name}</span>
+                        <span className="text-xs text-gray-500 ml-2">({c.mobile})</span>
+                      </div>
+                      {c.pan && (
+                        <span className="text-[10px] bg-gray-100 px-1.5 py-0.5 rounded font-mono text-gray-550 border border-gray-200">
+                          {c.pan}
+                        </span>
+                      )}
+                    </button>
+                  ));
+                })()}
+              </div>
+            ) : (
               <Select value={selectedClient} onValueChange={(val) => handleClientChange(val || '')}>
                 <SelectTrigger><SelectValue placeholder="Choose a client" /></SelectTrigger>
                 <SelectContent>
-                  {filteredClients.map(c => <SelectItem key={c.id} value={c.id}>{c.name} - {c.mobile}</SelectItem>)}
-                  {filteredClients.length === 0 && (
-                    <p className="text-xs text-gray-400 p-2 text-center">No matches</p>
-                  )}
+                  {clients.map(c => <SelectItem key={c.id} value={c.id}>{c.name} - {c.mobile}</SelectItem>)}
                 </SelectContent>
               </Select>
-            );
-          })()}
+            )}
+          </div>
         </div>
 
         {selectedClient && (

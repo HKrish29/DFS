@@ -189,3 +189,82 @@ export async function globalSearch(query: string) {
 
   return results;
 }
+
+export async function checkAndCreateBirthdayNotificationsAction() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  // Fetch active clients with dob
+  const { data: clients, error } = await supabase
+    .from('clients')
+    .select('id, name, dob')
+    .eq('is_active', true)
+    .not('dob', 'is', null);
+
+  if (error || !clients) return [];
+
+  const today = new Date();
+  const upcomingBirthdaysList: any[] = [];
+
+  for (const client of clients) {
+    if (!client.dob) continue;
+    const dob = new Date(client.dob);
+    // Use current year for comparison
+    const birthday = new Date(today.getFullYear(), dob.getMonth(), dob.getDate());
+    
+    // Normalize date parts
+    const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const birthdayDateOnly = new Date(birthday.getFullYear(), birthday.getMonth(), birthday.getDate());
+
+    // If birthday already passed this year, check next year
+    if (birthdayDateOnly < todayDateOnly) {
+      birthdayDateOnly.setFullYear(today.getFullYear() + 1);
+    }
+    
+    const diffTime = birthdayDateOnly.getTime() - todayDateOnly.getTime();
+    const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+    // If birthday is within 7 days
+    const isBirthdayNear = diffDays >= 0 && diffDays <= 7;
+    
+    if (isBirthdayNear) {
+      // Check if a notification already exists for this client's birthday this year
+      const startOfYear = new Date(today.getFullYear(), 0, 1).toISOString();
+      const { data: existingNotif } = await supabase
+        .from('notifications')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('type', 'birthday')
+        .ilike('message', `%${client.name}%`)
+        .gt('created_at', startOfYear)
+        .maybeSingle();
+
+      if (!existingNotif) {
+        const birthdayStr = dob.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+        const title = diffDays === 0 ? `Birthday Today: ${client.name} 🎉` : `Upcoming Birthday: ${client.name}`;
+        const message = diffDays === 0 
+          ? `${client.name}'s birthday is today! Wish them a happy birthday.` 
+          : `${client.name}'s birthday is on ${birthdayStr} (in ${diffDays} days).`;
+
+        await supabase.from('notifications').insert({
+          user_id: user.id,
+          title,
+          message,
+          type: 'birthday',
+          is_read: false
+        });
+      }
+
+      upcomingBirthdaysList.push({
+        id: client.id,
+        name: client.name,
+        dob: client.dob,
+        daysAway: diffDays
+      });
+    }
+  }
+
+  return upcomingBirthdaysList;
+}
+

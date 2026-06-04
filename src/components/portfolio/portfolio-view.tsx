@@ -144,8 +144,8 @@ export function PortfolioView({ clients, selectedClientId }: PortfolioViewProps)
     <div className="space-y-6">
       {/* Client Selection */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-col gap-2 sm:flex-row w-full sm:w-auto items-stretch sm:items-center">
-          <div className="relative w-full sm:w-64">
+        <div className="flex flex-col gap-2 w-full sm:w-80">
+          <div className="relative w-full">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
             <Input
               placeholder="Search client by name, mobile, PAN..."
@@ -154,21 +154,48 @@ export function PortfolioView({ clients, selectedClientId }: PortfolioViewProps)
               className="pl-8 h-9 text-xs"
             />
           </div>
-          <Select value={clientId} onValueChange={(val) => setClientId(val || '')}>
-            <SelectTrigger className="w-full sm:w-72">
-              <SelectValue placeholder="Select a client" />
-            </SelectTrigger>
-            <SelectContent>
-              {filteredClients.map((client) => (
-                <SelectItem key={client.id} value={client.id}>
-                  {client.name} - {client.mobile}
-                </SelectItem>
-              ))}
-              {filteredClients.length === 0 && (
-                <p className="text-xs text-gray-400 p-2 text-center">No clients match search</p>
-              )}
-            </SelectContent>
-          </Select>
+          {clientSearch ? (
+            <div className="border border-gray-150 rounded-lg divide-y divide-gray-100 max-h-48 overflow-y-auto bg-white shadow-sm w-full">
+              {(() => {
+                if (filteredClients.length === 0) {
+                  return <div className="p-2.5 text-center text-xs text-gray-400">No clients match search</div>;
+                }
+                return filteredClients.map(c => (
+                  <button
+                    key={c.id}
+                    onClick={() => {
+                      setClientId(c.id);
+                      setClientSearch('');
+                    }}
+                    className="w-full text-left px-3 py-2 hover:bg-blue-50/50 text-xs font-medium flex items-center justify-between transition-colors cursor-pointer"
+                  >
+                    <div>
+                      <span className="text-[#0F172A] font-semibold">{c.name}</span>
+                      <span className="text-[10px] text-gray-500 ml-1.5">({c.mobile})</span>
+                    </div>
+                    {c.pan && (
+                      <span className="text-[9px] bg-gray-100 px-1 py-0.5 rounded font-mono text-gray-550 border border-gray-200">
+                        {c.pan}
+                      </span>
+                    )}
+                  </button>
+                ));
+              })()}
+            </div>
+          ) : (
+            <Select value={clientId} onValueChange={(val) => setClientId(val || '')}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select a client" />
+              </SelectTrigger>
+              <SelectContent>
+                {clients.map((client) => (
+                  <SelectItem key={client.id} value={client.id}>
+                    {client.name} - {client.mobile}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </div>
         {clientId && (
           <div className="flex gap-2">

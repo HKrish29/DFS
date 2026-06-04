@@ -5,6 +5,8 @@ import { Sidebar } from '@/components/layout/sidebar';
 import { Header } from '@/components/layout/header';
 import { useAppStore } from '@/lib/store';
 import { createClient } from '@/lib/supabase/client';
+import { checkAndCreateBirthdayNotificationsAction } from '@/lib/actions/dashboard';
+import { toast } from 'sonner';
 
 export default function DashboardLayout({
   children,
@@ -12,6 +14,13 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const { setUser, user } = useAppStore();
+
+  useEffect(() => {
+    // Request push notification permission
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
+  }, []);
 
   useEffect(() => {
     async function loadUser() {
@@ -24,9 +33,10 @@ export default function DashboardLayout({
             .select('*')
             .eq('id', authUser.id)
             .single();
-          if (profile) {
-            setUser(profile);
-          } else {
+          
+          let currentUserProfile = profile;
+          
+          if (!profile) {
             // Profile might not exist yet (trigger race condition) - create it
             const { data: newProfile } = await supabase
               .from('users')
@@ -39,8 +49,35 @@ export default function DashboardLayout({
               .select()
               .single();
             if (newProfile) {
-              setUser(newProfile);
+              currentUserProfile = newProfile;
             }
+          }
+
+          if (currentUserProfile) {
+            setUser(currentUserProfile);
+            
+            // Check birthdays
+            const birthdays = await checkAndCreateBirthdayNotificationsAction();
+            birthdays.forEach((b: any) => {
+              const msg = b.daysAway === 0 
+                ? `${b.name}'s birthday is today! 🎉` 
+                : `${b.name}'s birthday is in ${b.daysAway} days (${new Date(b.dob).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}).`;
+              
+              toast(msg, {
+                icon: '🎂',
+                duration: 10000,
+              });
+
+              // Show browser notification if permitted
+              if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+                try {
+                  new Notification(b.daysAway === 0 ? "Birthday Today! 🎂" : "Upcoming Birthday 🎂", {
+                    body: msg,
+                    icon: '/favicon.ico'
+                  });
+                } catch {}
+              }
+            });
           }
         }
       } catch (err) {
