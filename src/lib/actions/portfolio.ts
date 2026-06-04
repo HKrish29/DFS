@@ -297,6 +297,7 @@ export async function bulkImportAction(payload: {
     for (const client of extractedClients) {
       try {
         let resolvedClientId = client.existingId;
+        let existingProfile: any = null;
 
         // 1. Find or create client
         if (!resolvedClientId) {
@@ -304,21 +305,35 @@ export async function bulkImportAction(payload: {
           if (client.pan) {
             const { data: existingPanClient } = await supabase
               .from('clients')
-              .select('id')
+              .select('id, name, mobile, email, pan, city, state')
               .eq('pan', client.pan)
               .eq('is_active', true)
               .maybeSingle();
-            if (existingPanClient) resolvedClientId = existingPanClient.id;
+            if (existingPanClient) {
+              resolvedClientId = existingPanClient.id;
+              existingProfile = existingPanClient;
+            }
           }
           if (!resolvedClientId && client.mobile) {
             const { data: existingMobClient } = await supabase
               .from('clients')
-              .select('id')
+              .select('id, name, mobile, email, pan, city, state')
               .eq('mobile', client.mobile)
               .eq('is_active', true)
               .maybeSingle();
-            if (existingMobClient) resolvedClientId = existingMobClient.id;
+            if (existingMobClient) {
+              resolvedClientId = existingMobClient.id;
+              existingProfile = existingMobClient;
+            }
           }
+        } else {
+          // Fetch existing profile details for resolvedClientId
+          const { data: profile } = await supabase
+            .from('clients')
+            .select('id, name, mobile, email, pan, city, state')
+            .eq('id', resolvedClientId)
+            .maybeSingle();
+          existingProfile = profile;
         }
 
         if (!resolvedClientId) {
@@ -363,11 +378,41 @@ export async function bulkImportAction(payload: {
             realized_gains: 0,
           });
         } else {
-          logs.push({
-            item: `Client: ${client.name}`,
-            status: 'success',
-            message: 'Linked to existing client',
-          });
+          // Check if we should update existing client details if feed has newer ones
+          const updateData: any = {};
+          if (client.email && client.email !== existingProfile?.email && !client.email.endsWith('@example.com')) {
+            updateData.email = client.email;
+          }
+          if (client.pan && client.pan !== existingProfile?.pan) {
+            updateData.pan = client.pan;
+          }
+          if (client.name && client.name !== existingProfile?.name) {
+            updateData.name = client.name;
+          }
+          if (client.city && client.city !== existingProfile?.city && client.city !== 'Rajkot') {
+            updateData.city = client.city;
+          }
+          if (client.state && client.state !== existingProfile?.state && client.state !== 'Gujarat') {
+            updateData.state = client.state;
+          }
+
+          if (Object.keys(updateData).length > 0) {
+            await supabase
+              .from('clients')
+              .update(updateData)
+              .eq('id', resolvedClientId);
+            logs.push({
+              item: `Client: ${client.name}`,
+              status: 'success',
+              message: 'Linked and updated existing client profile',
+            });
+          } else {
+            logs.push({
+              item: `Client: ${client.name}`,
+              status: 'success',
+              message: 'Linked to existing client',
+            });
+          }
         }
 
         // Get portfolio ID
@@ -458,7 +503,13 @@ export async function bulkImportAction(payload: {
       }
     }
   } else {
-    // Standard Flat Import
+    // Standard Flat Import - Fetch all existing active clients once to prevent duplicate checks from hitting database in a loop
+    const { data: allClients } = await supabase
+      .from('clients')
+      .select('id, name, mobile, email, pan, city, state, occupation')
+      .eq('is_active', true);
+    
+    const existingClientsList = allClients || [];
     const clientsToInsert: any[] = [];
     const clientRows: any[] = [];
 
@@ -466,20 +517,77 @@ export async function bulkImportAction(payload: {
       const row = standardData[i];
       const name = row['Client Name'] || row['Name'] || row['name'] || row['client_name'] || '';
       const mobile = String(row['Mobile'] || row['mobile'] || row['Phone'] || row['phone'] || '').replace(/\D/g, '');
+      const pan = String(row['PAN'] || row['pan'] || '').toUpperCase().trim();
+      const email = String(row['Email'] || row['email'] || '').trim();
 
       if (name && mobile && mobile.length === 10) {
-        clientsToInsert.push({
-          name: String(name),
-          mobile,
-          pan: String(row['PAN'] || row['pan'] || '') || null,
-          email: String(row['Email'] || row['email'] || '') || null,
-          city: String(row['City'] || row['city'] || '') || null,
-          state: String(row['State'] || row['state'] || '') || null,
-          occupation: String(row['Occupation'] || row['occupation'] || '') || null,
-          risk_profile: null,
-          user_id: user.id,
-        });
-        clientRows.push({ name, index: i + 1 });
+        // Find if client already exists by PAN or Mobile
+        const matchedClient = existingClientsList.find(c => 
+          (pan && c.pan && c.pan.toUpperCase() === pan) || 
+          (c.mobile === mobile)
+        );
+
+        if (matchedClient) {
+          // Check if details are different and need updating
+          const updateData: any = {};
+          if (email && email !== matchedClient.email) updateData.email = email;
+          if (pan && pan !== matchedClient.pan) updateData.pan = pan;
+          if (name && name !== matchedClient.name) updateData.name = String(name);
+          
+          if (row['City'] || row['city']) {
+            const city = String(row['City'] || row['city']);
+            if (city && city !== matchedClient.city) updateData.city = city;
+          }
+          if (row['State'] || row['state']) {
+            const state = String(row['State'] || row['state']);
+            if (state && state !== matchedClient.state) updateData.state = state;
+          }
+          if (row['Occupation'] || row['occupation']) {
+            const occ = String(row['Occupation'] || row['occupation']);
+            if (occ && occ !== matchedClient.occupation) updateData.occupation = occ;
+          }
+
+          if (Object.keys(updateData).length > 0) {
+            const { error: updateErr } = await supabase
+              .from('clients')
+              .update(updateData)
+              .eq('id', matchedClient.id);
+
+            if (updateErr) {
+              logs.push({
+                item: `Row ${i + 1}: ${name}`,
+                status: 'error',
+                message: `Update failed: ${updateErr.message}`
+              });
+            } else {
+              logs.push({
+                item: `Row ${i + 1}: ${name}`,
+                status: 'success',
+                message: 'Updated existing client profile'
+              });
+            }
+          } else {
+            logs.push({
+              item: `Row ${i + 1}: ${name}`,
+              status: 'success',
+              message: 'Client profile already up-to-date'
+            });
+          }
+        } else {
+          // Insert as a new client
+          clientsToInsert.push({
+            name: String(name),
+            mobile,
+            pan: pan || null,
+            email: email || null,
+            city: String(row['City'] || row['city'] || '') || null,
+            state: String(row['State'] || row['state'] || '') || null,
+            occupation: String(row['Occupation'] || row['occupation'] || '') || null,
+            risk_profile: null,
+            user_id: user.id,
+          });
+          clientRows.push({ name, index: i + 1 });
+        }
       } else {
         logs.push({
           item: `Row ${i + 1}`,
@@ -490,7 +598,7 @@ export async function bulkImportAction(payload: {
     }
 
     if (clientsToInsert.length > 0) {
-      // Bulk insert clients
+      // Bulk insert new clients
       const { data: insertedClients, error: insertErr } = await supabase
         .from('clients')
         .insert(clientsToInsert)
