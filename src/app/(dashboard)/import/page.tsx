@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { getClients, createClientAction } from '@/lib/actions/clients';
-import { addInvestmentAction, createFileImportRecord } from '@/lib/actions/portfolio';
+import { addInvestmentAction, createFileImportRecord, bulkImportAction } from '@/lib/actions/portfolio';
 import { toast } from 'sonner';
 import { 
   FileUp, 
@@ -478,164 +478,54 @@ export default function ImportPage() {
   async function handleImport() {
     setImporting(true);
     setStep('importing');
-    const logs: typeof importLog = [];
 
-    if (importType === 'portfolio' || importType === 'feed') {
-      for (const client of extractedClients) {
-        try {
-          let resolvedClientId = client.existingId;
-
-          // 1. Create client if they do not exist
-          if (!resolvedClientId) {
-            const clientResult = await createClientAction({
-              name: client.name,
-              mobile: client.mobile,
-              pan: client.pan || null,
-              email: client.email || null,
-              city: client.city || null,
-              state: client.state || null,
-              occupation: 'Business Owner',
-              risk_profile: 'moderate',
-              aadhaar: null,
-              dob: null,
-              anniversary: null,
-              address: null,
-              pincode: null,
-              notes: importType === 'feed' ? 'Imported via CAMS Feed' : `Imported via Portfolio Sheet: KYC: ${client.kycStatus}`,
-              assigned_rm_id: null,
-            });
-
-            if (clientResult.error) {
-              logs.push({
-                item: `Client: ${client.name}`,
-                status: 'error',
-                message: `Failed to create client: ${clientResult.error}`
-              });
-              continue; // Skip investments if client creation failed
-            } else {
-              resolvedClientId = clientResult.data.id;
-              logs.push({
-                item: `Client: ${client.name}`,
-                status: 'success',
-                message: 'Created client successfully'
-              });
-            }
-          } else {
-            logs.push({
-              item: `Client: ${client.name}`,
-              status: 'success',
-              message: 'Linked to existing client'
-            });
-          }
-
-          // 2. Import investments
-          for (const inv of client.investments) {
-            try {
-              const invResult = await addInvestmentAction({
-                client_id: resolvedClientId!,
-                scheme_name: inv.schemeName,
-                folio_number: inv.folioNumber,
-                nav: inv.purchaseNav,
-                units: inv.units,
-                invested_amount: inv.investedAmount,
-                current_value: inv.currentValue,
-                category: 'mutual_fund',
-                investment_type: 'lumpsum',
-                purchase_date: inv.purchaseDate,
-                scheme_code: null,
-                amc: inv.schemeName.split(' ')[0] || 'Other',
-              });
-
-              if (invResult.error) {
-                logs.push({
-                  item: `  - Investment: Folio ${inv.folioNumber}`,
-                  status: 'error',
-                  message: `Failed: ${invResult.error}`
-                });
-              } else {
-                logs.push({
-                  item: `  - Investment: Folio ${inv.folioNumber}`,
-                  status: 'success',
-                  message: `Imported holding: ₹${inv.currentValue.toLocaleString()}`
-                });
-              }
-            } catch (invErr) {
-              logs.push({
-                item: `  - Investment: Folio ${inv.folioNumber}`,
-                status: 'error',
-                message: 'Unexpected holding import error'
-              });
-            }
-          }
-
-        } catch (clientErr) {
-          logs.push({
-            item: `Client: ${client.name}`,
-            status: 'error',
-            message: 'Unexpected client import error'
-          });
-        }
-      }
-    } else {
-      // Standard Flat Import
-      for (let i = 0; i < standardData.length; i++) {
-        const row = standardData[i];
-        try {
-          const name = row['Client Name'] || row['Name'] || row['name'] || row['client_name'] || '';
-          const mobile = String(row['Mobile'] || row['mobile'] || row['Phone'] || row['phone'] || '').replace(/\D/g, '');
-
-          if (name && mobile && mobile.length === 10) {
-            const result = await createClientAction({
-              name: String(name),
-              mobile,
-              pan: String(row['PAN'] || row['pan'] || '') || null,
-              email: String(row['Email'] || row['email'] || '') || null,
-              city: String(row['City'] || row['city'] || '') || null,
-              state: String(row['State'] || row['state'] || '') || null,
-              occupation: String(row['Occupation'] || row['occupation'] || '') || null,
-              risk_profile: null,
-              aadhaar: null,
-              dob: null,
-              anniversary: null,
-              address: null,
-              pincode: null,
-              notes: 'Imported via standard flat list',
-              assigned_rm_id: null,
-            });
-
-            if (result.error) {
-              logs.push({ item: `Row ${i + 1}: ${name}`, status: 'error', message: result.error });
-            } else {
-              logs.push({ item: `Row ${i + 1}: ${name}`, status: 'success', message: 'Client imported' });
-            }
-          } else {
-            logs.push({ item: `Row ${i + 1}`, status: 'error', message: 'Missing Name or valid 10-digit Mobile' });
-          }
-        } catch (error) {
-          logs.push({ item: `Row ${i + 1}`, status: 'error', message: 'Unexpected error' });
-        }
-      }
-    }
-
-    setImportLog(logs);
-    setStep('done');
-    setImporting(false);
-
-    const successCount = logs.filter(l => l.status === 'success').length;
-    toast.success(`Import complete: ${successCount}/${logs.length} operations successful`);
-
-    // Record the file import for audit trail
     try {
-      await createFileImportRecord({
-        file_name: file?.name || 'unknown',
-        file_size: file?.size || 0,
-        import_type: importType === 'portfolio' || importType === 'feed' ? 'portfolio' : 'standard',
-        clients_created: logs.filter(l => l.item.startsWith('Client:') && l.status === 'success').length,
-        investments_created: logs.filter(l => l.item.includes('Investment:') && l.status === 'success').length,
-        status: 'completed',
-        notes: `${successCount}/${logs.length} operations successful`,
+      const result = await bulkImportAction({
+        importType: importType as any,
+        extractedClients,
+        standardData,
       });
-    } catch {}
+
+      if (result.error) {
+        toast.error(`Import failed: ${result.error}`);
+        setStep('preview');
+        setImporting(false);
+        return;
+      }
+
+      const logs = result.data || [];
+      setImportLog(logs);
+      setStep('done');
+      setImporting(false);
+
+      const successCount = logs.filter(l => l.status === 'success').length;
+      toast.success(`Import complete: ${successCount}/${logs.length} operations successful`);
+
+      // Record the file import for audit trail
+      try {
+        const clientsCreated = logs.filter(l => l.item.startsWith('Client:') && l.status === 'success' && l.message.includes('Created')).length;
+        const investmentsCreated = importType === 'portfolio' || importType === 'feed'
+          ? logs.filter(l => l.item === 'Holdings Upload' && l.status === 'success').reduce((sum, l) => {
+              const match = l.message.match(/batch-imported (\d+)/);
+              return sum + (match ? parseInt(match[1]) : 0);
+            }, 0)
+          : 0;
+
+        await createFileImportRecord({
+          file_name: file?.name || 'unknown',
+          file_size: file?.size || 0,
+          import_type: importType === 'portfolio' || importType === 'feed' ? 'portfolio' : 'standard',
+          clients_created: clientsCreated,
+          investments_created: investmentsCreated,
+          status: 'completed',
+          notes: `${successCount}/${logs.length} operations successful`,
+        });
+      } catch {}
+    } catch (err: any) {
+      toast.error(`Import error: ${err.message || err}`);
+      setStep('preview');
+      setImporting(false);
+    }
   }
 
   function reset() {

@@ -276,3 +276,277 @@ export async function createFileImportRecord(record: {
   if (error) return { error: error.message };
   return { data };
 }
+
+export async function bulkImportAction(payload: {
+  importType: 'portfolio' | 'feed' | 'standard';
+  extractedClients?: any[];
+  standardData?: any[];
+}) {
+  const { importType, extractedClients = [], standardData = [] } = payload;
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: 'Not authenticated' };
+
+  const logs: { item: string; status: 'success' | 'error'; message: string }[] = [];
+  const clientIdsToRecalculate = new Set<string>();
+
+  if (importType === 'portfolio' || importType === 'feed') {
+    const investmentsToInsert: any[] = [];
+    const activitiesToInsert: any[] = [];
+
+    for (const client of extractedClients) {
+      try {
+        let resolvedClientId = client.existingId;
+
+        // 1. Find or create client
+        if (!resolvedClientId) {
+          // Double check if client exists by PAN or Mobile
+          if (client.pan) {
+            const { data: existingPanClient } = await supabase
+              .from('clients')
+              .select('id')
+              .eq('pan', client.pan)
+              .eq('is_active', true)
+              .maybeSingle();
+            if (existingPanClient) resolvedClientId = existingPanClient.id;
+          }
+          if (!resolvedClientId && client.mobile) {
+            const { data: existingMobClient } = await supabase
+              .from('clients')
+              .select('id')
+              .eq('mobile', client.mobile)
+              .eq('is_active', true)
+              .maybeSingle();
+            if (existingMobClient) resolvedClientId = existingMobClient.id;
+          }
+        }
+
+        if (!resolvedClientId) {
+          // Create new client
+          const { data: newClient, error: clientErr } = await supabase
+            .from('clients')
+            .insert({
+              name: client.name,
+              mobile: client.mobile,
+              pan: client.pan || null,
+              email: client.email || null,
+              city: client.city || null,
+              state: client.state || null,
+              occupation: 'Business Owner',
+              risk_profile: 'moderate',
+              notes: importType === 'feed' ? 'Imported via CAMS Feed' : `Imported via Portfolio Sheet: KYC: ${client.kycStatus}`,
+              user_id: user.id,
+            })
+            .select()
+            .single();
+
+          if (clientErr) {
+            logs.push({
+              item: `Client: ${client.name}`,
+              status: 'error',
+              message: `Failed to create client: ${clientErr.message}`,
+            });
+            continue;
+          }
+          resolvedClientId = newClient.id;
+          logs.push({
+            item: `Client: ${client.name}`,
+            status: 'success',
+            message: 'Created client successfully',
+          });
+
+          // Create portfolio record
+          await supabase.from('portfolios').insert({
+            client_id: resolvedClientId,
+            total_invested: 0,
+            current_value: 0,
+            realized_gains: 0,
+          });
+        } else {
+          logs.push({
+            item: `Client: ${client.name}`,
+            status: 'success',
+            message: 'Linked to existing client',
+          });
+        }
+
+        // Get portfolio ID
+        let { data: portfolio } = await supabase
+          .from('portfolios')
+          .select('id')
+          .eq('client_id', resolvedClientId)
+          .maybeSingle();
+
+        if (!portfolio) {
+          const { data: newPortfolio } = await supabase
+            .from('portfolios')
+            .insert({
+              client_id: resolvedClientId,
+              total_invested: 0,
+              current_value: 0,
+              realized_gains: 0,
+            })
+            .select()
+            .single();
+          portfolio = newPortfolio;
+        }
+
+        clientIdsToRecalculate.add(resolvedClientId);
+
+        // Prepare investments
+        for (const inv of client.investments) {
+          investmentsToInsert.push({
+            client_id: resolvedClientId,
+            portfolio_id: portfolio?.id || null,
+            scheme_name: inv.schemeName,
+            folio_number: inv.folioNumber || null,
+            nav: inv.purchaseNav || 0,
+            units: inv.units || 0,
+            invested_amount: inv.investedAmount || 0,
+            current_value: inv.currentValue || 0,
+            category: 'mutual_fund',
+            investment_type: 'lumpsum',
+            purchase_date: inv.purchaseDate || null,
+            scheme_code: null,
+            amc: inv.schemeName.split(' ')[0] || 'Other',
+          });
+
+          activitiesToInsert.push({
+            user_id: user.id,
+            action: 'created',
+            entity_type: 'investment',
+            details: `Imported investment: ${inv.schemeName} (Folio ${inv.folioNumber})`,
+          });
+        }
+      } catch (err: any) {
+        logs.push({
+          item: `Client: ${client.name}`,
+          status: 'error',
+          message: `Unexpected error: ${err.message || err}`,
+        });
+      }
+    }
+
+    // Bulk insert investments
+    if (investmentsToInsert.length > 0) {
+      const { data: insertedInvs, error: invErr } = await supabase
+        .from('investments')
+        .insert(investmentsToInsert)
+        .select('id, folio_number, current_value');
+
+      if (invErr) {
+        logs.push({
+          item: `Holdings Upload`,
+          status: 'error',
+          message: `Failed to insert holdings: ${invErr.message}`,
+        });
+      } else {
+        logs.push({
+          item: `Holdings Upload`,
+          status: 'success',
+          message: `Successfully batch-imported ${investmentsToInsert.length} holdings.`,
+        });
+
+        // Insert activities
+        if (activitiesToInsert.length > 0) {
+          const acts = activitiesToInsert.map((act, i) => ({
+            ...act,
+            entity_id: insertedInvs?.[i]?.id || null,
+          }));
+          await supabase.from('activities').insert(acts);
+        }
+      }
+    }
+  } else {
+    // Standard Flat Import
+    const clientsToInsert: any[] = [];
+    const clientRows: any[] = [];
+
+    for (let i = 0; i < standardData.length; i++) {
+      const row = standardData[i];
+      const name = row['Client Name'] || row['Name'] || row['name'] || row['client_name'] || '';
+      const mobile = String(row['Mobile'] || row['mobile'] || row['Phone'] || row['phone'] || '').replace(/\D/g, '');
+
+      if (name && mobile && mobile.length === 10) {
+        clientsToInsert.push({
+          name: String(name),
+          mobile,
+          pan: String(row['PAN'] || row['pan'] || '') || null,
+          email: String(row['Email'] || row['email'] || '') || null,
+          city: String(row['City'] || row['city'] || '') || null,
+          state: String(row['State'] || row['state'] || '') || null,
+          occupation: String(row['Occupation'] || row['occupation'] || '') || null,
+          risk_profile: null,
+          user_id: user.id,
+        });
+        clientRows.push({ name, index: i + 1 });
+      } else {
+        logs.push({
+          item: `Row ${i + 1}`,
+          status: 'error',
+          message: 'Missing Name or valid 10-digit Mobile',
+        });
+      }
+    }
+
+    if (clientsToInsert.length > 0) {
+      // Bulk insert clients
+      const { data: insertedClients, error: insertErr } = await supabase
+        .from('clients')
+        .insert(clientsToInsert)
+        .select('id, name');
+
+      if (insertErr) {
+        logs.push({
+          item: `Clients Upload`,
+          status: 'error',
+          message: `Failed to bulk insert clients: ${insertErr.message}`,
+        });
+      } else {
+        // Create portfolios & activities in bulk
+        const portfoliosToInsert = (insertedClients || []).map(c => ({
+          client_id: c.id,
+          total_invested: 0,
+          current_value: 0,
+          realized_gains: 0,
+        }));
+        await supabase.from('portfolios').insert(portfoliosToInsert);
+
+        const activitiesToInsert = (insertedClients || []).map(c => ({
+          user_id: user.id,
+          action: 'created',
+          entity_type: 'client',
+          entity_id: c.id,
+          details: `Bulk imported client: ${c.name}`,
+        }));
+        await supabase.from('activities').insert(activitiesToInsert);
+
+        (insertedClients || []).forEach(c => {
+          const rowInfo = clientRows.find(cr => cr.name === c.name);
+          logs.push({
+            item: `Row ${rowInfo ? rowInfo.index : '?'}: ${c.name}`,
+            status: 'success',
+            message: 'Client imported successfully',
+          });
+        });
+      }
+    }
+  }
+
+  // 4. Recalculate portfolio totals on server
+  for (const clientId of clientIdsToRecalculate) {
+    try {
+      await recalculatePortfolio(clientId);
+    } catch {}
+  }
+
+  // 5. Revalidate paths
+  revalidatePath('/clients');
+  revalidatePath('/dashboard');
+  for (const clientId of clientIdsToRecalculate) {
+    revalidatePath(`/portfolio/${clientId}`);
+  }
+
+  return { data: logs };
+}
+
