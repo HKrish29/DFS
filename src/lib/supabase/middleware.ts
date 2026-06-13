@@ -25,12 +25,22 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  let user: any = null;
+
+  if (process.env.NEXT_PUBLIC_BYPASS_SUPABASE === 'true') {
+    const sessionCookie = request.cookies.get('dfs-offline-session')?.value;
+    if (sessionCookie) {
+      user = { id: sessionCookie };
+    }
+  } else {
+    const {
+      data: { user: authUser },
+    } = await supabase.auth.getUser();
+    user = authUser;
+  }
 
   // Public paths that don't require auth
-  const publicPaths = ['/login', '/signup', '/forgot-password', '/auth/callback'];
+  const publicPaths = ['/login', '/forgot-password', '/auth/callback'];
   const isPublicPath = publicPaths.some(path => request.nextUrl.pathname.startsWith(path));
   const isApiPath = request.nextUrl.pathname.startsWith('/api');
   const isStaticPath = request.nextUrl.pathname.startsWith('/_next') ||

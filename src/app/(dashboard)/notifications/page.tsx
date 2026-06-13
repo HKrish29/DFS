@@ -7,27 +7,37 @@ import { Badge } from '@/components/ui/badge';
 import { getNotifications, markNotificationRead, markAllNotificationsRead } from '@/lib/actions/dashboard';
 import { formatDateTime } from '@/lib/utils/helpers';
 import { Bell, CheckCheck, Cake, Heart, RotateCcw, ClipboardList, Info } from 'lucide-react';
+import { useAppStore } from '@/lib/store';
 import { toast } from 'sonner';
 import Link from 'next/link';
 
 export default function NotificationsPage() {
   const [notifications, setNotifications] = useState<any[]>([]);
+  const { setNotifications: setStoreNotifications } = useAppStore();
 
   useEffect(() => {
     async function load() {
-      try { const n = await getNotifications(); setNotifications(n); } catch {}
+      try {
+        const n = await getNotifications();
+        setNotifications(n);
+        setStoreNotifications(n);
+      } catch {}
     }
     load();
-  }, []);
+  }, [setStoreNotifications]);
 
   async function handleMarkRead(id: string) {
     await markNotificationRead(id);
-    setNotifications(notifications.map(n => n.id === id ? { ...n, is_read: true } : n));
+    const updated = notifications.map(n => n.id === id ? { ...n, is_read: true } : n);
+    setNotifications(updated);
+    setStoreNotifications(updated);
   }
 
   async function handleMarkAllRead() {
     await markAllNotificationsRead();
-    setNotifications(notifications.map(n => ({ ...n, is_read: true })));
+    const updated = notifications.map(n => ({ ...n, is_read: true }));
+    setNotifications(updated);
+    setStoreNotifications(updated);
     toast.success('All notifications marked as read');
   }
 

@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { clientSchema, type ClientFormData } from '@/lib/validations';
 import { createClientAction, updateClientAction } from '@/lib/actions/clients';
+import { getDocuments } from '@/lib/actions/documents';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -17,6 +18,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { indianStates } from '@/lib/utils/helpers';
+import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import type { Client } from '@/lib/types';
 
@@ -27,6 +29,19 @@ interface ClientFormProps {
 
 export function ClientForm({ client, onSuccess }: ClientFormProps) {
   const [loading, setLoading] = useState(false);
+  const [hasDocuments, setHasDocuments] = useState(false);
+
+  useEffect(() => {
+    if (client) {
+      getDocuments(client.id)
+        .then((docs) => {
+          if (docs && docs.length > 0) {
+            setHasDocuments(true);
+          }
+        })
+        .catch((err) => console.error('Error checking documents in form:', err));
+    }
+  }, [client]);
 
   const {
     register,
@@ -95,37 +110,72 @@ export function ClientForm({ client, onSuccess }: ClientFormProps) {
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+      {hasDocuments && (
+        <div className="rounded-lg bg-amber-50 p-3.5 text-xs text-amber-800 border border-amber-200">
+          <strong>Identity Data Protected:</strong> Core identity fields (Name, Mobile, Email, PAN, Aadhaar) are locked because this client has documents uploaded in their vault.
+        </div>
+      )}
+
       {/* Basic Information */}
       <div>
         <h4 className="text-sm font-semibold text-[#0F172A] mb-3">Basic Information</h4>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label>Client Name *</Label>
-            <Input {...register('name')} placeholder="Full Name" />
+            <Input 
+              {...register('name')} 
+              placeholder="Full Name" 
+              readOnly={hasDocuments}
+              className={cn(hasDocuments && "bg-gray-100 cursor-not-allowed")}
+            />
             {errors.name && <p className="text-xs text-red-500">{errors.name.message}</p>}
           </div>
 
           <div className="space-y-2">
             <Label>Mobile *</Label>
-            <Input {...register('mobile')} placeholder="10 digit mobile" maxLength={10} />
+            <Input 
+              {...register('mobile')} 
+              placeholder="10 digit mobile" 
+              maxLength={10} 
+              readOnly={hasDocuments}
+              className={cn(hasDocuments && "bg-gray-100 cursor-not-allowed")}
+            />
             {errors.mobile && <p className="text-xs text-red-500">{errors.mobile.message}</p>}
           </div>
 
           <div className="space-y-2">
             <Label>PAN</Label>
-            <Input {...register('pan')} placeholder="ABCDE1234F" maxLength={10} className="uppercase" />
+            <Input 
+              {...register('pan')} 
+              placeholder="ABCDE1234F" 
+              maxLength={10} 
+              className={cn("uppercase", hasDocuments && "bg-gray-100 cursor-not-allowed")}
+              readOnly={hasDocuments}
+            />
             {errors.pan && <p className="text-xs text-red-500">{errors.pan.message}</p>}
           </div>
 
           <div className="space-y-2">
             <Label>Aadhaar</Label>
-            <Input {...register('aadhaar')} placeholder="12 digit number" maxLength={12} />
+            <Input 
+              {...register('aadhaar')} 
+              placeholder="12 digit number" 
+              maxLength={12} 
+              readOnly={hasDocuments}
+              className={cn(hasDocuments && "bg-gray-100 cursor-not-allowed")}
+            />
             {errors.aadhaar && <p className="text-xs text-red-500">{errors.aadhaar.message}</p>}
           </div>
 
           <div className="space-y-2">
             <Label>Email</Label>
-            <Input {...register('email')} type="email" placeholder="email@example.com" />
+            <Input 
+              {...register('email')} 
+              type="email" 
+              placeholder="email@example.com" 
+              readOnly={hasDocuments}
+              className={cn(hasDocuments && "bg-gray-100 cursor-not-allowed")}
+            />
             {errors.email && <p className="text-xs text-red-500">{errors.email.message}</p>}
           </div>
 

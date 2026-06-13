@@ -2,7 +2,8 @@
   "users": [
     {
       "id": "mock-admin-id",
-      "email": "admin@dhara.com",
+      "email": "dharafinancialservices@gmail.com",
+      "password": "Dhara@123",
       "full_name": "Dhara Admin",
       "role": "admin",
       "is_active": true

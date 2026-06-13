@@ -6,6 +6,7 @@ import { getDocuments } from '@/lib/actions/documents';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { PortalFooter } from '@/components/layout/portal-footer';
 import { formatCurrency, formatDate, calculateAbsoluteReturn, goalTypeLabels } from '@/lib/utils/helpers';
 import { signOut } from '@/lib/actions/auth';
 import { Briefcase, Target, FileText, LogOut } from 'lucide-react';
@@ -188,9 +189,7 @@ export default async function ClientPortalPage() {
         )}
 
         {/* Footer */}
-        <div className="text-center py-4">
-          <p className="text-xs text-gray-400">© 2025 Dhara Financial Services. All rights reserved.</p>
-        </div>
+        <PortalFooter />
       </div>
     </div>
   );

@@ -130,6 +130,14 @@ export const noteSchema = z.object({
   content: z.string().min(1, 'Note content is required'),
 });
 
+export const adminUserSchema = z.object({
+  email: z.string().email('Please enter a valid email address'),
+  password: z.string().min(6, 'Password must be at least 6 characters'),
+  full_name: z.string().min(2, 'Name must be at least 2 characters'),
+  role: z.enum(['admin', 'staff', 'relationship_manager', 'client']),
+  phone: z.string().or(z.literal('')).optional().nullable(),
+});
+
 // Type exports
 export type LoginFormData = z.infer<typeof loginSchema>;
 export type SignupFormData = z.infer<typeof signupSchema>;
@@ -143,3 +151,4 @@ export type LeadFormData = z.infer<typeof leadSchema>;
 export type TaskFormData = z.infer<typeof taskSchema>;
 export type MeetingFormData = z.infer<typeof meetingSchema>;
 export type NoteFormData = z.infer<typeof noteSchema>;
+export type AdminUserFormData = z.infer<typeof adminUserSchema>;

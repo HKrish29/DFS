@@ -14,7 +14,8 @@ import { getPortfolio } from '@/lib/actions/portfolio';
 import { generateWhatsAppMessage, generateWhatsAppLink, formatCurrency, calculateInvestmentCAGR } from '@/lib/utils/helpers';
 import { toast } from 'sonner';
 import type { Client } from '@/lib/types';
-import { MessageSquare, Copy, ExternalLink, Send, Download, Search } from 'lucide-react';
+import { MessageSquare, Copy, ExternalLink, Send, Download, Search, Cake } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 
 // Dynamic import of PDF button component to completely isolate native pdf dependencies from SSR
 const SimpleReportPDFButton = dynamic(
@@ -27,6 +28,7 @@ export default function WhatsAppPage() {
   const [selectedClient, setSelectedClient] = useState('');
   const [message, setMessage] = useState('');
   const [clientData, setClientData] = useState<{ name: string; mobile: string; portfolioValue?: string; pan?: string } | null>(null);
+  const [messageType, setMessageType] = useState<'report' | 'custom'>('report');
   
   // Date range filters
   const [startDate, setStartDate] = useState('');
@@ -42,6 +44,7 @@ export default function WhatsAppPage() {
   }, []);
 
   async function handleClientSelect(clientId: string) {
+    setMessageType('report');
     setSelectedClient(clientId);
     const client = clients.find(c => c.id === clientId);
     if (!client) return;
@@ -57,6 +60,29 @@ export default function WhatsAppPage() {
 
     setClientData({ name: client.name, mobile: client.mobile, portfolioValue, pan: client.pan || '' });
     setMessage(generateWhatsAppMessage(client.name, portfolioValue));
+  }
+
+  async function handleSelectBirthday(client: any) {
+    setMessageType('custom');
+    setSelectedClient(client.id);
+    let portfolioValue: string | undefined;
+    try {
+      const portfolio = await getPortfolio(client.id);
+      setPortfolioData(portfolio);
+      if (portfolio?.portfolio?.current_value) {
+        portfolioValue = formatCurrency(portfolio.portfolio.current_value);
+      }
+    } catch {}
+
+    setClientData({ name: client.name, mobile: client.mobile, portfolioValue, pan: client.pan || '' });
+    
+    // Set message to birthday template wish instead of report
+    const birthdayTemplate = 'Dear {name},\n\nWishing you a very Happy Birthday! 🎂\n\nMay this year bring you good health, happiness, and financial growth.\n\nWarm Regards,\nDhara Financial Services';
+    setMessage(birthdayTemplate.replace(/{name}/g, client.name));
+    
+    setStartDate('');
+    setEndDate('');
+    toast.success(`Birthday template loaded for ${client.name}`);
   }
 
   // Filter investments based on selected date range
@@ -84,7 +110,7 @@ export default function WhatsAppPage() {
 
   // Sync WhatsApp message template with selected dates and current filtered values
   useEffect(() => {
-    if (!clientData) return;
+    if (!clientData || messageType !== 'report') return;
     const formatDateStr = (ds: string) => {
       try {
         return new Date(ds).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).split(' ').join('-');
@@ -98,7 +124,14 @@ export default function WhatsAppPage() {
     setMessage(
       `Dear ${clientData.name},\n\nPlease find your Dhara Financial Services (DFS) Mutual Fund Investment Report${dateRangeStr} here. \n\nPortfolio Value: ${portfolioValStr}\n\nWarm Regards,\nDhara Financial Services`
     );
-  }, [clientData, startDate, endDate, totalCurrent]);
+  }, [clientData, startDate, endDate, totalCurrent, messageType]);
+
+  // If user sets date range filter, revert automatically to report view
+  useEffect(() => {
+    if (startDate || endDate) {
+      setMessageType('report');
+    }
+  }, [startDate, endDate]);
 
   function handleCopy() {
     navigator.clipboard.writeText(message);
@@ -135,10 +168,39 @@ export default function WhatsAppPage() {
         </Button>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Client Selection */}
-        <Card className="p-6 bg-white border-gray-200">
-          <h3 className="text-sm font-semibold text-[#0F172A] mb-4">Select Client</h3>
+      {/* Compute upcoming birthdays */}
+      {(() => {
+        const upcomingBirthdays = clients
+          .filter(c => c.dob)
+          .map(c => {
+            const dob = new Date(c.dob!);
+            const today = new Date();
+            const birthday = new Date(today.getFullYear(), dob.getMonth(), dob.getDate());
+            const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+            const birthdayDateOnly = new Date(birthday.getFullYear(), birthday.getMonth(), birthday.getDate());
+
+            if (birthdayDateOnly < todayDateOnly) {
+              birthdayDateOnly.setFullYear(today.getFullYear() + 1);
+            }
+            
+            const diffTime = birthdayDateOnly.getTime() - todayDateOnly.getTime();
+            const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+            
+            return {
+              ...c,
+              dobDate: dob,
+              daysAway: diffDays,
+            };
+          })
+          .filter(c => c.daysAway >= 0 && c.daysAway <= 30)
+          .sort((a, b) => a.daysAway - b.daysAway);
+
+        return (
+          <div className="grid gap-6 lg:grid-cols-2">
+            <div className="space-y-6">
+              {/* Client Selection */}
+              <Card className="p-6 bg-white border-gray-200">
+                <h3 className="text-sm font-semibold text-[#0F172A] mb-4">Select Client</h3>
           
           <div className="flex flex-col gap-2.5 sm:flex-row mb-3">
             <div className="relative flex-1">
@@ -247,6 +309,58 @@ export default function WhatsAppPage() {
           )}
         </Card>
 
+        {/* Upcoming Birthdays Card */}
+        <Card className="p-6 bg-white border-gray-200">
+          <div className="flex items-center gap-2 mb-4">
+            <Cake className="h-5 w-5 text-pink-500" />
+            <h3 className="text-sm font-semibold text-[#0F172A]">Upcoming Birthdays (Next 30 Days)</h3>
+          </div>
+          
+          {upcomingBirthdays.length === 0 ? (
+            <p className="text-xs text-gray-400 py-4 text-center">No client birthdays in the next 30 days.</p>
+          ) : (
+            <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+              {upcomingBirthdays.map(c => {
+                const dayStr = c.dobDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+                return (
+                  <button
+                    key={c.id}
+                    onClick={() => handleSelectBirthday(c)}
+                    className={`w-full border text-left p-3 rounded-lg flex items-center justify-between transition-all hover:bg-pink-50/20 hover:border-pink-200 cursor-pointer ${
+                      selectedClient === c.id && messageType === 'custom'
+                        ? 'bg-pink-50/50 border-pink-300 ring-1 ring-pink-300'
+                        : 'border-gray-150 bg-white'
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-[#0F172A] truncate">{c.name}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">{c.mobile}</p>
+                    </div>
+                    <div className="text-right flex-shrink-0 flex items-center gap-2">
+                      <span className="text-xs font-medium text-gray-700 bg-gray-100 px-2 py-0.5 rounded-full border border-gray-200 font-mono">
+                        {dayStr}
+                      </span>
+                      <Badge 
+                        variant="secondary"
+                        className={
+                          c.daysAway === 0 
+                            ? 'bg-red-500 text-white text-[10px] font-bold border-none hover:bg-red-500' 
+                            : c.daysAway === 1 
+                              ? 'bg-orange-500 text-white text-[10px] font-bold border-none hover:bg-orange-500' 
+                              : 'bg-pink-100 text-pink-700 text-[10px] font-bold border-none hover:bg-pink-200'
+                        }
+                      >
+                        {c.daysAway === 0 ? 'Today 🎉' : c.daysAway === 1 ? 'Tomorrow 🎂' : `in ${c.daysAway} days`}
+                      </Badge>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </Card>
+      </div>
+
         {/* Message Preview */}
         <Card className="p-6 bg-white border-gray-200">
           <h3 className="text-sm font-semibold text-[#0F172A] mb-4">Message Preview</h3>
@@ -291,6 +405,8 @@ export default function WhatsAppPage() {
           )}
         </Card>
       </div>
+      );
+    })()}
 
       {/* Quick Templates */}
       <Card className="p-6 bg-white border-gray-200">
@@ -308,6 +424,7 @@ export default function WhatsAppPage() {
               key={template.title}
               onClick={() => {
                 const name = clientData?.name || 'Client';
+                setMessageType('custom');
                 setMessage(template.msg.replace(/{name}/g, name));
                 toast.success(`"${template.title}" template loaded`);
               }}

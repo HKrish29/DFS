@@ -10,10 +10,12 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import Link from 'next/link';
+import { ContactDialog } from '@/components/layout/contact-dialog';
 
 export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [contactOpen, setContactOpen] = useState(false);
   const router = useRouter();
 
   const { register, handleSubmit, formState: { errors } } = useForm<LoginFormData>({
@@ -90,16 +92,24 @@ export default function LoginPage() {
             </Button>
           </form>
 
-          <div className="mt-6 text-center">
-            <p className="text-sm text-gray-500">
-              Don&apos;t have an account?{' '}
-              <Link href="/signup" className="text-[#2563EB] hover:underline font-medium">
-                Sign Up
-              </Link>
+          <div className="mt-6 text-center border-t border-gray-100 pt-4 space-y-3">
+            <p className="text-xs text-gray-400">
+              DFS Internal Platform • Offline Version
             </p>
+            <div className="flex flex-col items-center gap-1.5 pt-2 border-t border-gray-50">
+              <span className="text-[9px] text-gray-400 font-bold uppercase tracking-wider">System Developers</span>
+              <button
+                type="button"
+                onClick={() => setContactOpen(true)}
+                className="w-full relative px-3 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-extrabold text-xs rounded-lg shadow-[0_3px_0_0_#1e40af] hover:shadow-[0_1px_0_0_#1e40af] active:shadow-none hover:translate-y-[1px] active:translate-y-[3px] border border-blue-500 transition-all cursor-pointer text-center"
+              >
+                NirQuants Team 🚀
+              </button>
+            </div>
           </div>
         </div>
       </div>
+      <ContactDialog open={contactOpen} onOpenChange={setContactOpen} />
     </div>
   );
 }

@@ -5,7 +5,8 @@ import { Sidebar } from '@/components/layout/sidebar';
 import { Header } from '@/components/layout/header';
 import { useAppStore } from '@/lib/store';
 import { createClient } from '@/lib/supabase/client';
-import { checkAndCreateBirthdayNotificationsAction } from '@/lib/actions/dashboard';
+import { checkAndCreateBirthdayNotificationsAction, getNotifications } from '@/lib/actions/dashboard';
+import { getCurrentUser } from '@/lib/actions/auth';
 import { toast } from 'sonner';
 
 export default function DashboardLayout({
@@ -13,7 +14,7 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { setUser, user } = useAppStore();
+  const { setUser, user, setNotifications } = useAppStore();
 
   useEffect(() => {
     // Request push notification permission
@@ -25,39 +26,46 @@ export default function DashboardLayout({
   useEffect(() => {
     async function loadUser() {
       try {
-        const supabase = createClient();
-        const { data: { user: authUser } } = await supabase.auth.getUser();
-        if (authUser) {
-          const { data: profile } = await supabase
-            .from('users')
-            .select('*')
-            .eq('id', authUser.id)
-            .single();
-          
-          let currentUserProfile = profile;
-          
-          if (!profile) {
-            // Profile might not exist yet (trigger race condition) - create it
-            const { data: newProfile } = await supabase
+        let currentUserProfile = null;
+
+        if (process.env.NEXT_PUBLIC_BYPASS_SUPABASE === 'true') {
+          currentUserProfile = await getCurrentUser();
+        } else {
+          const supabase = createClient();
+          const { data: { user: authUser } } = await supabase.auth.getUser();
+          if (authUser) {
+            const { data: profile } = await supabase
               .from('users')
-              .upsert({
-                id: authUser.id,
-                email: authUser.email || '',
-                full_name: authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || 'Admin',
-                role: 'admin',
-              }, { onConflict: 'id' })
-              .select()
+              .select('*')
+              .eq('id', authUser.id)
               .single();
-            if (newProfile) {
-              currentUserProfile = newProfile;
+            
+            currentUserProfile = profile;
+            
+            if (!profile) {
+              // Profile might not exist yet (trigger race condition) - create it
+              const { data: newProfile } = await supabase
+                .from('users')
+                .upsert({
+                  id: authUser.id,
+                  email: authUser.email || '',
+                  full_name: authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || 'Admin',
+                  role: 'admin',
+                }, { onConflict: 'id' })
+                .select()
+                .single();
+              if (newProfile) {
+                currentUserProfile = newProfile;
+              }
             }
           }
+        }
 
-          if (currentUserProfile) {
-            setUser(currentUserProfile);
-            
-            // Check birthdays
-            const birthdays = await checkAndCreateBirthdayNotificationsAction();
+        if (currentUserProfile) {
+          setUser(currentUserProfile);
+          
+          // Check birthdays
+          const birthdays = await checkAndCreateBirthdayNotificationsAction();
             birthdays.forEach((b: any) => {
               const msg = b.daysAway === 0 
                 ? `${b.name}'s birthday is today! 🎉` 
@@ -78,14 +86,17 @@ export default function DashboardLayout({
                 } catch {}
               }
             });
-          }
+
+          // Update store count with all active notifications
+          const notifs = await getNotifications();
+          setNotifications(notifs);
         }
       } catch (err) {
         console.error('Failed to load user profile:', err);
       }
     }
     loadUser();
-  }, [setUser]);
+  }, [setUser, setNotifications]);
 
   return (
     <div className="flex h-screen overflow-hidden">

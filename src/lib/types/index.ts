@@ -264,9 +264,16 @@ export interface FileImport {
   user_id: string;
   file_name: string;
   file_size: number;
-  import_type: 'standard' | 'portfolio';
+  import_type: 'standard' | 'portfolio' | 'bulk_clients' | 'bulk_transactions' | 'nav_feed';
   clients_created: number;
+  clients_updated: number;
   investments_created: number;
+  total_rows: number;
+  rows_processed: number;
+  rows_failed: number;
+  processing_time_ms: number | null;
+  file_hash: string | null;
+  data_source: string | null;
   status: 'processing' | 'completed' | 'failed';
   notes: string | null;
   created_at: string;

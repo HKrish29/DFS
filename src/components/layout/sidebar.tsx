@@ -20,7 +20,10 @@ import {
   ChevronLeft,
   Handshake,
   X,
+  ShieldCheck,
 } from 'lucide-react';
+import { useState } from 'react';
+import { ContactDialog } from './contact-dialog';
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
@@ -40,7 +43,14 @@ const navigation = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { sidebarOpen, setSidebarOpen, toggleSidebar } = useAppStore();
+  const { sidebarOpen, setSidebarOpen, toggleSidebar, user } = useAppStore();
+  const [contactOpen, setContactOpen] = useState(false);
+
+  const menuItems = [...navigation];
+  if (user?.role === 'admin') {
+    // Insert Admin Panel right before Settings
+    menuItems.splice(menuItems.length - 1, 0, { name: 'Admin Panel', href: '/admin', icon: ShieldCheck });
+  }
 
   return (
     <>
@@ -90,7 +100,7 @@ export function Sidebar() {
 
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto p-3 space-y-1">
-          {navigation.map((item) => {
+          {menuItems.map((item) => {
             const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
             return (
               <Link
@@ -114,12 +124,32 @@ export function Sidebar() {
         </nav>
 
         {/* Footer */}
-        {sidebarOpen && (
-          <div className="border-t border-gray-200 p-4">
-            <p className="text-xs text-gray-400 text-center">© 2025 Dhara Financial Services</p>
+        {sidebarOpen ? (
+          <div className="border-t border-gray-250 bg-slate-50/50 p-4 space-y-3">
+            <div className="flex flex-col items-center gap-1.5">
+              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">System Developers</span>
+              <button
+                onClick={() => setContactOpen(true)}
+                className="w-full relative px-3 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold text-xs rounded-lg shadow-[0_4px_0_0_#1e40af] hover:shadow-[0_2px_0_0_#1e40af] active:shadow-none hover:translate-y-[2px] active:translate-y-[4px] transition-all border border-blue-500 cursor-pointer text-center"
+              >
+                NirQuants Team 🚀
+              </button>
+            </div>
+            <p className="text-[10px] text-gray-400 text-center">© 2026 Dhara Financial Services</p>
+          </div>
+        ) : (
+          <div className="border-t border-gray-200 p-2 flex justify-center">
+            <button
+              onClick={() => setContactOpen(true)}
+              className="h-9 w-9 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold text-xs flex items-center justify-center shadow-[0_3px_0_0_#1e40af] hover:shadow-[0_1px_0_0_#1e40af] active:shadow-none hover:translate-y-[2px] active:translate-y-[3px] border border-blue-500 transition-all cursor-pointer"
+              title="Contact Developers"
+            >
+              NQ
+            </button>
           </div>
         )}
       </aside>
+      <ContactDialog open={contactOpen} onOpenChange={setContactOpen} />
     </>
   );
 }
